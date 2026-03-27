@@ -2,6 +2,8 @@ import streamlit as st
 import time
 import random
 import pandas as pd
+import warnings
+warnings.filterwarnings("ignore", category=UserWarning)
 
 from simulation import NetworkEnv
 from orchestrator import FogOrchestrator
@@ -28,9 +30,8 @@ bootstrap()
 
 # ---------- HEADER ----------
 st.title("🚗 Vehicular Fog Intelligence Console")
-st.markdown(
-    f"**Decision Engine:** {'Local AI Model' if st.session_state.brain.use_ai else 'Heuristic Mode'}"
-)
+# Create a dynamic placeholder that we will fill later based on the toggle
+status_banner = st.empty() 
 
 left, right = st.columns([2.2, 1])
 
@@ -58,10 +59,14 @@ with left:
             st.info(node["id"])
             st.write(f"CPU Load → {node['cpu']}%")
             st.write(f"Temperature → {node['temp']} °C")
+            # This will now display the ML predictions from your simulation.py update!
+            if "health_status" in node:
+                st.write(f"Health → **{node['health_status']}**")
             st.caption(f"Mode → {node['mode']}")
 
     vehicle_df = pd.DataFrame(snapshot["vehicles"])
-    st.dataframe(vehicle_df, use_container_width=True, hide_index=True)
+    # Fixed the Streamlit warning here
+    st.dataframe(vehicle_df, width="stretch", hide_index=True)
 
 
 # ---------- COMMAND PANEL ----------
@@ -69,6 +74,20 @@ with right:
 
     st.subheader("🤖 Command Center")
 
+    # --- NEW: OFFLINE MODE TOGGLE ---
+    offline_mode = st.checkbox("🛑 Simulate Network Blackout")
+    
+    if offline_mode:
+        # Override latency to simulate a dead network
+        snapshot["real_latency_ms"] = 9999
+        # Dynamically inject the RED offline banner to the top of the page!
+        status_banner.error("🔴 **SYSTEM OFFLINE:** Cloud AI unreachable. Relying on Local OBU ML Reflexes.")
+    else:
+        # Dynamically inject the GREEN online banner to the top of the page!
+        ai_status = "Generative AI (Phi-3)" if st.session_state.brain.use_ai else "Heuristics"
+        status_banner.success(f"🟢 **SYSTEM ONLINE:** Decision Engine → {ai_status}")
+
+    # FIXED: Re-added the missing auto_mode checkbox here!
     auto_mode = st.checkbox("Enable Autonomous Optimization")
 
     def push_log(message):
@@ -91,7 +110,15 @@ with right:
         st.write(f"Detected Intent → **{sensed_intent}**")
 
         with st.spinner("AI evaluating system state..."):
+            # Turn off AI to simulate network failure
+            if offline_mode:
+                st.session_state.brain.use_ai = False
+                
             outcome = st.session_state.brain.decide(snapshot, sensed_intent)
+            
+            # Turn AI back on internally
+            if offline_mode:
+                st.session_state.brain.use_ai = True
 
         st.json(outcome)
 
@@ -114,7 +141,15 @@ with right:
             t0 = time.time()
 
             with st.spinner("Computing orchestration decision..."):
+                # Turn off AI to simulate network failure
+                if offline_mode:
+                    st.session_state.brain.use_ai = False
+
                 outcome = st.session_state.brain.decide(snapshot, user_intent)
+
+                # Turn AI back on internally
+                if offline_mode:
+                    st.session_state.brain.use_ai = True
 
             elapsed = round(time.time() - t0, 2)
 
