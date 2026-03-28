@@ -5,17 +5,46 @@ import pandas as pd
 import cv2
 import threading
 import queue
-from vision import MultimodalSensor
 import warnings
+import requests
+import json
+import psutil
+
+# Importing your custom logic
+from vision import MultimodalSensor
+from simulation import NetworkEnv
+from orchestrator import FogOrchestrator
+
+# ---------- CLOUD CONFIGURATION ----------
+# This connects to your Java Spring Boot Backend (Phase 3)
+CLOUD_URL = "http://localhost:8080/api/v1/cloud/sync"
 
 # Silence the Python 3.14 Pydantic version warnings
 warnings.filterwarnings("ignore", category=UserWarning)
 
-from simulation import NetworkEnv
-from orchestrator import FogOrchestrator
+# ---------- THE CLOUD BRIDGE ----------
+def sync_to_cloud(hazard_type, decision, cpu, temp):
+    """
+    Sends real-time telemetry from the car to the Java Backend.
+    """
+    payload = {
+        "vehicleId": "2306048",           # Your Roll Number
+        "cpuLoad": cpu,
+        "temperature": temp,
+        "healthStatus": "CRITICAL" if temp > 75 else "STABLE",
+        "hazardDetected": hazard_type,
+        "aiReasoning": decision
+    }
+    
+    try:
+        # Use a short timeout so the UI doesn't lag if the cloud is slow
+        response = requests.post(CLOUD_URL, json=payload, timeout=1)
+        if response.status_code == 200:
+            return True
+    except Exception:
+        return False # Silent fail: Car keeps operating in Edge-Native mode
 
 # ---------- BACKGROUND WORKER ----------
-# We define this OUTSIDE the loop so it can run independently
 def background_ai_task(brain, state_data, offline, res_queue):
     """Handles heavy AI thinking without freezing the camera feed."""
     original_ai = brain.use_ai
@@ -33,7 +62,7 @@ def background_ai_task(brain, state_data, offline, res_queue):
 
 # ---------- INITIAL SETUP ----------
 st.set_page_config(
-    page_title="Vehicular Fog Intelligence Console",
+    page_title="ENGO: Vehicular Fog Intelligence Console",
     layout="wide"
 )
 
@@ -55,8 +84,8 @@ def bootstrap():
 
 bootstrap()
 
-# ---------- HEADER ----------
-st.title("🚗 Vehicular Fog Intelligence Console")
+# ---------- HEADER & UI ----------
+st.title("🚗 ENGO: Vehicular Fog Intelligence Console")
 status_banner = st.empty() 
 
 left, right = st.columns([2.2, 1])
@@ -69,11 +98,6 @@ with left:
     snapshot = st.session_state.env.state()
 
     latency_placeholder = st.empty()
-    latency_placeholder.metric(
-        label="Observed Network Latency",
-        value=f"{snapshot.get('real_latency_ms', 0)} ms"
-    )
-
     node_cols = st.columns(len(snapshot["fog_nodes"]))
     node_placeholders = []
 
@@ -82,63 +106,21 @@ with left:
             st.info(node["id"])
             stats_box = st.empty() 
             node_placeholders.append(stats_box)
-            
-            with stats_box.container():
-                st.write(f"CPU Load → {node['cpu']}%")
-                st.write(f"Temperature → {node['temp']} °C")
-                if "health_status" in node:
-                    st.write(f"Health → **{node['health_status']}**")
-                st.caption(f"Mode → {node['mode']}")
 
     vehicle_placeholder = st.empty()
-    vehicle_df = pd.DataFrame(snapshot["vehicles"])
-    vehicle_placeholder.dataframe(vehicle_df, width="stretch", hide_index=True)
 
 # ---------- COMMAND PANEL ----------
 with right:
     st.subheader("🤖 Command Center")
-
     offline_mode = st.checkbox("🛑 Simulate Network Blackout")
-    
-    if offline_mode:
-        status_banner.error("🔴 **SYSTEM OFFLINE:** Cloud AI unreachable. Relying on Local OBU ML Reflexes.")
-    else:
-        ai_status = "Generative AI (Phi-3)" if st.session_state.brain.use_ai else "Heuristics"
-        status_banner.success(f"🟢 **SYSTEM ONLINE:** Decision Engine → {ai_status}")
-
     auto_mode = st.checkbox("Enable Autonomous Optimization")
+    
+    # Cloud Status Indicator
+    cloud_status = st.empty()
 
     def push_log(message):
         timestamp = time.strftime("%H:%M:%S")
         st.session_state.history.insert(0, f"[{timestamp}] {message}")
-
-    if auto_mode:
-        st.warning("Autonomous cycle active")
-        intents_pool = ["Prioritize Speed", "Thermal Protection", "Energy Saving", "Traffic Load Balance"]
-        sensed_intent = random.choice(intents_pool)
-        st.write(f"Detected Intent → **{sensed_intent}**")
-
-        with st.spinner("AI evaluating system state..."):
-            if offline_mode: st.session_state.brain.use_ai = False
-            outcome = st.session_state.brain.decide(snapshot, sensed_intent)
-            if offline_mode: st.session_state.brain.use_ai = True
-
-        st.json(outcome)
-        push_log(f"AUTO → {outcome.get('reasoning')}")
-        time.sleep(1.8)
-        st.rerun()
-
-    else:
-        user_intent = st.text_input("Provide Intent", value="Prioritize Speed")
-        trigger = st.button("Execute Optimization")
-
-        if trigger:
-            with st.spinner("Computing orchestration decision..."):
-                if offline_mode: st.session_state.brain.use_ai = False
-                outcome = st.session_state.brain.decide(snapshot, user_intent)
-                if offline_mode: st.session_state.brain.use_ai = True
-            st.json(outcome)
-            push_log(f"MANUAL → {outcome.get('reasoning')}")
 
     st.markdown("---")
     st.markdown("### 📜 Recent Decisions")
@@ -152,7 +134,7 @@ with right:
 
     # --- YOLO DASHCAM FEED ---
     st.markdown("---")
-    st.subheader("👁️ Live Dashcam (YOLO Object Detection)")
+    st.subheader("👁️ Live Dashcam (YOLO + Cloud Sync)")
     enable_camera = st.checkbox("Turn on Dashcam")
 
     if enable_camera:
@@ -163,77 +145,73 @@ with right:
         frame_window = st.image([])
         scene_text = st.empty()
         
-        # CHANGED: Using index 0 as per your test results
-        cap = cv2.VideoCapture(1)
+        cap = cv2.VideoCapture(0) # Change to 1 if 0 is your internal webcam
         
         while enable_camera:
             ret, frame = cap.read()
-            if not ret:
-                st.error("Failed to access webcam.")
-                break
+            if not ret: break
                 
-            # 1. Check if the background thread finished
+            # 1. Background AI Task Check
             if not st.session_state.ai_queue.empty():
                 log_msg = st.session_state.ai_queue.get()
                 push_log(log_msg)
                 draw_decisions()
                 st.session_state.is_thinking = False
 
-            # 2. Process Vision
+            # 2. Process Computer Vision
             processed_frame, is_emergency, scene, distance = st.session_state.vision_ai.process_frame(frame)
             st.session_state.camera_distance = distance
             st.session_state.env.step(distance)
-            
             live_state = st.session_state.env.state()
+            edge_0 = live_state["fog_nodes"][0]
+
+            # 3. BRIDGE TO CLOUD (Phase 3 Integration)
+            # We send the YOLO detection and local node health to Java
+            sync_success = sync_to_cloud(
+                hazard_type=scene, 
+                decision=st.session_state.last_alert, 
+                cpu=edge_0['cpu'], 
+                temp=edge_0['temp']
+            )
             
-            # 3. Apply Blackout Logic to Latency
+            if sync_success:
+                cloud_status.success("☁️ Cloud Sync: ACTIVE (Connected to Java)")
+            else:
+                cloud_status.warning("☁️ Cloud Sync: OFFLINE (Edge-Native)")
+
+            # 4. Update UI Placeholders
             live_latency = 9999 if offline_mode else live_state.get('real_latency_ms', 0)
             latency_placeholder.metric(label="Observed Network Latency", value=f"{live_latency} ms")
             
-            # 4. Update UI Placeholders
             for idx, node in enumerate(live_state["fog_nodes"]):
                 with node_placeholders[idx].container():
-                    st.write(f"CPU Load → {node['cpu']}%")
-                    st.write(f"Temperature → {node['temp']} °C")
+                    st.write(f"CPU → {node['cpu']}% | Temp → {node['temp']}°C")
                     st.write(f"Health → **{node['health_status']}**")
-                    st.caption(f"Mode → {node['mode']}")
-                    
+            
             vehicle_df = pd.DataFrame(live_state["vehicles"])
             vehicle_placeholder.dataframe(vehicle_df, width="stretch", hide_index=True)
             
-            edge_0 = live_state["fog_nodes"][0]
-            
-            # 5. Trigger Non-Blocking Threaded AI
+            # 5. Threaded LLM Logic
             if edge_0['health_status'] == 'CRITICAL' and st.session_state.last_alert != 'CRITICAL' and not st.session_state.is_thinking:
                 st.session_state.last_alert = 'CRITICAL'
                 st.session_state.is_thinking = True 
-                
-                # FIXED: Passing st.session_state.ai_queue as an argument
                 thread = threading.Thread(
                     target=background_ai_task, 
                     args=(st.session_state.brain, live_state.copy(), offline_mode, st.session_state.ai_queue)
                 )
                 thread.start()
-                
             elif edge_0['health_status'] == 'Stable':
                 st.session_state.last_alert = 'Stable'
 
             # 6. HUD Drawing
-            hud_cpu = f"Live CPU: {edge_0['cpu']}%"
-            hud_temp = f"Live Temp: {edge_0['temp']} C"
-            hud_health = f"Health: {edge_0['health_status']}"
+            color = (0, 0, 255) if edge_0['health_status'] == 'CRITICAL' else (0, 255, 0)
+            cv2.putText(processed_frame, f"CPU: {edge_0['cpu']}%", (15, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+            cv2.putText(processed_frame, f"TEMP: {edge_0['temp']}C", (15, 65), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 165, 255), 2)
+            cv2.putText(processed_frame, f"HEALTH: {edge_0['health_status']}", (15, 100), cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
             
             if st.session_state.is_thinking:
-                cv2.putText(processed_frame, "AI THINKING...", (15, 135), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
-            else:
-                cv2.putText(processed_frame, f"Active Policy: {user_intent}", (15, 135), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
-            
-            cv2.putText(processed_frame, hud_cpu, (15, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-            cv2.putText(processed_frame, hud_temp, (15, 65), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 165, 255), 2)
-            
-            color = (0, 0, 255) if edge_0['health_status'] == 'CRITICAL' else (0, 255, 0)
-            cv2.putText(processed_frame, hud_health, (15, 100), cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
-            
+                cv2.putText(processed_frame, "AI ANALYZING...", (15, 135), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
+
             if is_emergency: scene_text.error(f"🚨 HAZARD: {scene}")
             else: scene_text.info(f"🛣️ {scene}")
 
@@ -242,6 +220,7 @@ with right:
             
         cap.release()
 
-if not auto_mode and not enable_camera:
+# Auto-refresh if camera is off
+if not enable_camera:
     time.sleep(1)
     st.rerun()

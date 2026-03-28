@@ -14,3 +14,33 @@ env/
 # Streamlit/OS junk
 .streamlit/
 .DS_Store
+
+
+# Java / Maven
+target/
+!.mvn/wrapper/maven-wrapper.jar
+*.class
+*.jar
+*.war
+*.ear
+.mvn/
+.idea/
+*.iml
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+env/
+venv/
+.env
+
+# Docker / OS
+.DS_Store
+Thumbs.db
+*.log
+
+
+# Ignore YOLO model weights
+*.pt
