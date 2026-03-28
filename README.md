@@ -40,6 +40,6 @@ The architecture is built on a **Decoupled Microservice Pattern**, separating li
 
 ### 1. Clone & Setup
 ```bash
-git clone [https://github.com/YOUR_USERNAME/VFC-Intelligence-Console.git](https://github.com/YOUR_USERNAME/VFC-Intelligence-Console.git)
+git clone [https://github.com/YOUR_USERNAME/VFC-Intelligence-Console.git](https://github.com/sahilballav/VFC-Intelligence-Console.git)
 cd VFC-Intelligence-Console
 pip install -r requirements.txt
