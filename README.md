@@ -20,10 +20,15 @@ The architecture is built on a **Decoupled Microservice Pattern**, separating li
 * **Cognitive Reasoning (LLM)**: A local **Phi-3 model** (via Ollama) for complex system optimization.
 * **Asynchronous Concurrency**: Python Threading and Queues manage heavy AI tasks without blocking the UI thread.
 
-### 3. Continuous MLOps (The Learning)
-* **Telemetry Database**: Persistent logging of live physical states (CPU, Temp, Status) to a CSV-based "Data Lake."
-* **Background Trainer**: A standalone microservice (`live_trainer.py`) that monitors data growth and hot-swaps the Random Forest `.pkl` model.
+### 3. Cloud Orchestration Layer (The Headquarters)
+* **Spring Boot Orchestrator**: A centralized Java-based backend that manages fleet telemetry and provides a RESTful sync interface.
+* **H2 Database (SQL)**: Stores long-term telemetry records for academic audit and historical trend analysis.
+* **Validation Logic**: Ensures that data coming from the edge (vehicle) matches the expected schema before being persisted.
 
+### 4. Fog & Messaging Layer (The Infrastructure)
+* **Apache Kafka (Event Streaming)**: Acts as a "Message Bus," allowing vehicle data to be streamed to other services without slowing down the main backend.
+* **Redis (Live Caching)**: Provides sub-millisecond access to the "Current Status" of the car via RAM.
+* **Zookeeper**: Manages the Kafka broker cluster state.
 
 ---
 
@@ -36,30 +41,27 @@ While the core console runs on a production-grade Random Forest model, this repo
 
 ### 2. **K-Means Clustering: Unsupervised Behavioral Profiling**
 * **Goal**: Group node states without using pre-defined labels.
-* **Insight**: Discovers hidden patterns in hardware stress, identifying "Natural Clusters" of system behavior that human operators might miss.
+* **Insight**: Discovers hidden patterns in hardware stress, identifying "Natural Clusters" of behavior.
 
 ### 3. **Isolation Forest: Anomaly & Security Detection**
 * **Goal**: Identify "Outliers" in the telemetry stream.
-* **Insight**: Acts as a cybersecurity layer to detect sensor spoofing or hardware tampering by isolating data points that deviate from the normal operating manifold.
-
----
+* **Insight**: Acts as a cybersecurity layer to detect sensor spoofing or hardware tampering.
 
 ---
 
 ## 🛠️ Tech Stack
-* **Language**: Python 3.14
-* **UI/Dashboard**: Streamlit (Reactive Framework)
-* **Vision**: OpenCV, Ultralytics YOLOv8
-* **Orchestration**: LangChain, Ollama (Phi-3)
-* **ML/Data**: Scikit-Learn (Random Forest, Naive Bayes), Pandas, NumPy, Joblib
-* **Concurrency**: Threading, Queueing
+* **AI & Vision**: Python 3.x, OpenCV, Ultralytics YOLOv8, Scikit-Learn.
+* **Cloud Backend**: Java 17, Spring Boot 3.x, Spring Data JPA, Maven.
+* **Infrastructure**: Docker, Apache Kafka, Zookeeper, Redis.
+* **Persistence**: H2 (In-Memory SQL), Pandas (CSV Data Lake).
+* **UI**: Streamlit (Reactive Framework).
 
 ---
 
-## 🚀 Installation & Usage
+## 🚀 Installation & Execution
 
 ### 1. Clone & Setup
 ```bash
-git clone [https://github.com/YOUR_USERNAME/VFC-Intelligence-Console.git](https://github.com/sahilballav/VFC-Intelligence-Console.git)
+git clone [https://github.com/sahilballav/VFC-Intelligence-Console.git](https://github.com/sahilballav/VFC-Intelligence-Console.git)
 cd VFC-Intelligence-Console
 pip install -r requirements.txt
