@@ -24,6 +24,26 @@ The architecture is built on a **Decoupled Microservice Pattern**, separating li
 * **Telemetry Database**: Persistent logging of live physical states (CPU, Temp, Status) to a CSV-based "Data Lake."
 * **Background Trainer**: A standalone microservice (`live_trainer.py`) that monitors data growth and hot-swaps the Random Forest `.pkl` model.
 
+
+---
+
+## 🔬 Research & Analytical Lab (Academic Module)
+While the core console runs on a production-grade Random Forest model, this repository includes a **Research Lab** (Jupyter Notebooks) used to perform deep statistical analysis on the generated telemetry data.
+
+### 1. **Linear Regression: Predictive Hardware Modeling**
+* **Goal**: Model the correlation between CPU Load and Node Temperature.
+* **Insight**: Used to calculate a "Line of Best Fit" to predict when a node will reach a thermal threshold before it actually happens ($y = mx + b$).
+
+### 2. **K-Means Clustering: Unsupervised Behavioral Profiling**
+* **Goal**: Group node states without using pre-defined labels.
+* **Insight**: Discovers hidden patterns in hardware stress, identifying "Natural Clusters" of system behavior that human operators might miss.
+
+### 3. **Isolation Forest: Anomaly & Security Detection**
+* **Goal**: Identify "Outliers" in the telemetry stream.
+* **Insight**: Acts as a cybersecurity layer to detect sensor spoofing or hardware tampering by isolating data points that deviate from the normal operating manifold.
+
+---
+
 ---
 
 ## 🛠️ Tech Stack
