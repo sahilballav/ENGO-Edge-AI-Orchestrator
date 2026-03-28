@@ -14,15 +14,21 @@ class LatencyProbe:
 class FogNode:
     def __init__(self, name):
         self.name = name
-        self.load = random.randint(25, 55)
+        self.load = 20  # Base idle load
         self.temp = 42.0
 
-    def evolve(self):
-        # Simulate realistic server physics
-        drift = random.randint(-6, 12)
-        self.load = max(0, min(100, self.load + drift))
-        # Temperature naturally follows CPU load
-        self.temp = 30 + (self.load * 0.7) + (random.random() * 5)
+    # FIXED: Now accepts the camera proximity data!
+    def evolve(self, camera_proximity=0):
+        if camera_proximity > 0:
+            # If an object gets close to the camera, spike the CPU compute load!
+            self.load = int(min(100, 20 + camera_proximity))
+        else:
+            # Idle behavior when camera sees nothing
+            drift = random.randint(-2, 2)
+            self.load = max(10, min(40, self.load + drift))
+            
+        # Temperature dynamically reacts to the camera-driven CPU load
+        self.temp = 30 + (self.load * 0.7) + (random.random() * 2)
 
 class NetworkEnv:
     def __init__(self):
@@ -30,27 +36,17 @@ class NetworkEnv:
         self.vehicles = [Vehicle(f"Veh_{i}") for i in range(5)]
         self.latency = 0
         
-        # --- ML SUPERVISED LEARNING: TRAIN PREDICTOR ON STARTUP ---
+        # Train ML Predictor on startup
         self._train_health_predictor()
 
     def _train_health_predictor(self):
-        """
-        Trains a Random Forest Classifier to predict Node Failure.
-        Feature Engineering: Uses [CPU Load, Temperature] as input features.
-        Labels: 0 (Stable), 1 (Warning), 2 (Critical Failure)
-        """
-        # Simulated historical server logs (Feature Matrix)
+        """Trains a Random Forest Classifier to predict Node Failure."""
         X_train = [
-            [20, 45.0], [35, 50.2], [10, 38.5], [45, 55.0], # Stable Data
-            [65, 75.0], [70, 78.5], [60, 72.0], [75, 80.1], # Warning Data
-            [85, 90.0], [95, 95.5], [90, 92.0], [99, 98.0]  # Critical Data
+            [20, 45.0], [35, 50.2], [10, 38.5], [45, 55.0], 
+            [65, 75.0], [70, 78.5], [60, 72.0], [75, 80.1], 
+            [85, 90.0], [95, 95.5], [90, 92.0], [99, 98.0]  
         ]
-        # Corresponding labels for the data above
         y_train = [0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2]
-
-        # Initialize and train the ML Model 
-
-# [Image of Random Forest classification]
 
         self.health_model = RandomForestClassifier(n_estimators=10, random_state=42)
         self.health_model.fit(X_train, y_train)
@@ -67,10 +63,14 @@ class NetworkEnv:
         else: 
             return "CRITICAL"
 
-    def step(self):
+    # FIXED: The step function now "catches" the camera data from app.py
+    def step(self, live_camera_data=0):
         for n in self.nodes:
-            n.evolve()
-        self.latency = LatencyProbe.sample()
+            n.evolve(live_camera_data)
+            
+        # Latency also spikes if an object is dangerously close to the camera!
+        base_latency = 15 + (live_camera_data * 0.5)
+        self.latency = int(base_latency + random.uniform(-2, 2))
 
     def state(self):
         return {
@@ -79,7 +79,6 @@ class NetworkEnv:
                     "id": n.name,
                     "cpu": n.load,
                     "temp": round(n.temp, 1),
-                    # Ask the ML model to predict health based on live physics
                     "health_status": self._predict_node_health(n.load, n.temp),
                     "mode": "Adaptive"
                 } for n in self.nodes

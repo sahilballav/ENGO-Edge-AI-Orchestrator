@@ -2,6 +2,8 @@ import streamlit as st
 import time
 import random
 import pandas as pd
+import cv2
+from vision import MultimodalSensor
 import warnings
 warnings.filterwarnings("ignore", category=UserWarning)
 
@@ -16,6 +18,8 @@ st.set_page_config(
 )
 
 def bootstrap():
+    if "camera_distance" not in st.session_state:
+        st.session_state.camera_distance = 0
     if "env" not in st.session_state:
         st.session_state.env = NetworkEnv()
 
@@ -41,7 +45,8 @@ with left:
 
     st.subheader("📡 Live Network Twin")
 
-    st.session_state.env.step()
+    # Feed the live camera data into the physics engine!
+    st.session_state.env.step(st.session_state.camera_distance)
     snapshot = st.session_state.env.state()
 
     latency_value = snapshot.get("real_latency_ms", 0)
@@ -164,6 +169,65 @@ with right:
     for item in st.session_state.history[:6]:
         st.text(item)
 
+
+# --- NEW: YOLO DASHCAM FEED ---
+    st.markdown("---")
+    st.subheader("👁️ Live Dashcam (YOLO Object Detection)")
+    enable_camera = st.checkbox("Turn on Dashcam")
+
+    if enable_camera:
+        # Initialize the AI Vision pipeline in session state
+        if "vision_ai" not in st.session_state:
+            with st.spinner("Waking up YOLO AI Model..."):
+                st.session_state.vision_ai = MultimodalSensor()
+                
+        # Create an empty box to display the video
+        frame_window = st.image([])
+        scene_text = st.empty()
+        
+        # Access the laptop webcam (0 is the default camera)
+        cap = cv2.VideoCapture(0)
+        
+        while enable_camera:
+            ret, frame = cap.read()
+            if not ret:
+                st.error("Failed to access webcam.")
+                break
+                
+            # 1. Get the frame and the physical distance of the object from vision.py
+            processed_frame, is_emergency, scene, distance = st.session_state.vision_ai.process_frame(frame)
+            
+            # 2. FORCE the physics engine to update continuously inside this camera loop!
+            st.session_state.env.step(distance)
+            
+            # 3. Grab the live physics data for Edge_0
+            live_state = st.session_state.env.state()
+            edge_0 = live_state["fog_nodes"][0]
+            
+            # 4. DRAW THE HEADS-UP DISPLAY (HUD) ON THE CAMERA FEED
+            # We scale the distance down slightly so it doesn't get stuck at 100% too easily
+            hud_cpu = f"Live CPU: {edge_0['cpu']}%"
+            hud_temp = f"Live Temp: {edge_0['temp']} C"
+            hud_health = f"Health: {edge_0['health_status']}"
+            
+            # Overlay the text using OpenCV (BGR colors: Green, Orange, Red)
+            cv2.putText(processed_frame, hud_cpu, (15, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+            cv2.putText(processed_frame, hud_temp, (15, 65), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 165, 255), 2)
+            
+            # Make the health text red if it is critical, otherwise green
+            color = (0, 0, 255) if edge_0['health_status'] == 'CRITICAL' else (0, 255, 0)
+            cv2.putText(processed_frame, hud_health, (15, 100), cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
+            
+            # Show the text of what it sees in the Streamlit UI
+            if is_emergency:
+                scene_text.error(f"🚨 HAZARD: {scene}")
+            else:
+                scene_text.info(f"🛣️ {scene}")
+
+            # Convert to RGB and display in Streamlit
+            final_img = cv2.cvtColor(processed_frame, cv2.COLOR_BGR2RGB)
+            frame_window.image(final_img, channels="RGB")
+        cap.release()
 
 # ---------- PASSIVE REFRESH ----------
 if not auto_mode:
