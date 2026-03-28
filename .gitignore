@@ -1,12 +1,16 @@
-# Python Cache
+# Python caches
 __pycache__/
 *.pyc
 
-# AI Models & Weights
-yolov8n.pt
-*.pt
-*.onnx
+# ML Models & Data (We want the code, not the heavy binary files)
+models/*.pkl
+telemetry_log.csv
 
-# Virtual Environments (if you use them later)
+# Virtual Environments
 venv/
+env/
 .env
+
+# Streamlit/OS junk
+.streamlit/
+.DS_Store
